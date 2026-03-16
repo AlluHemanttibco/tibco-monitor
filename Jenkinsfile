@@ -41,7 +41,7 @@ pipeline {
                             export TARGET_ENV="$ENV_TO_SCAN"
                             export TARGET_EARS="$EARS_TO_SCAN"
                             
-                            python3 tibco_log_monitor.py
+                            python3 tibco_monitor.py
                         '''
                     }
                 }
