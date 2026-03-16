@@ -128,14 +128,44 @@ def notify(critical, info):
 
     slack_blocks = [{"type": "header", "text": {"type": "plain_text", "text": f"🚨 TIBCO EAR Report ({TARGET_ENV})"}}]
     if critical:
-        slack_blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*CRITICAL ERRORS:*\n" + "\n".join(
-            [f"• {c}" for c in critical])}})
+        slack_blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*CRITICAL ERRORS:*\n" + "\n".join([f"• {c}" for c in critical])}})
     if info:
-        slack_blocks.append({"type": "section", "text": {"type": "mrkdwn",
-                                                         "text": "*INFO (Stopped/Missing):*\n" + "\n".join(
-                                                             [f"• {i}" for i in info])}})
+        slack_blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*INFO (Stopped/Missing):*\n" + "\n".join([f"• {i}" for i in info])}})
+    
+    # NEW: Safe Slack execution block
+    if SLACK_WEBHOOK:
+        if SLACK_WEBHOOK.startswith("http"):
+            try:
+                requests.post(SLACK_WEBHOOK, json={"blocks": slack_blocks}, timeout=10)
+            except Exception as e:
+                logging.error(f"Failed to post to Slack: {e}")
+        else:
+            logging.error("Slack Webhook URL in Jenkins is missing 'http://' or 'https://'. Skipping Slack alert.")
 
-    if SLACK_WEBHOOK: requests.post(SLACK_WEBHOOK, json={"blocks": slack_blocks})
+    # Email Payload
+    html = f"""
+    <html>
+      <body style="font-family: Arial, sans-serif;">
+        <h2>TIBCO EAR Status Report ({TARGET_ENV})</h2>
+        <h3 style="color: red;">Critical Errors Found</h3>
+        <ul>{''.join([f"<li>{c}</li>" for c in critical]) if critical else "<li>None</li>"}</ul>
+        <h3 style="color: gray;">Info / Process Stopped / Unreachable</h3>
+        <ul>{''.join([f"<li>{i}</li>" for i in info]) if info else "<li>None</li>"}</ul>
+      </body>
+    </html>
+    """
+    msg = MIMEMultipart()
+    msg['Subject'] = f"TIBCO EAR Report [{TARGET_ENV}] - {'CRITICAL' if critical else 'INFO'}"
+    msg['From'] = "jenkins@urbanout.com"
+    msg['To'] = ALERT_EMAIL
+    msg.attach(MIMEText(html, 'html'))
+    
+    try:
+        with smtplib.SMTP(SMTP_SERVER) as server:
+            server.send_message(msg)
+            logging.info(f"Email report successfully sent to {ALERT_EMAIL}")
+    except Exception as e:
+        logging.error(f"Failed to send email: {e}")
 
 
 if __name__ == "__main__":
