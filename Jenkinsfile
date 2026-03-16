@@ -23,17 +23,23 @@ pipeline {
         }
         
         stage('Run TIBCO Log Monitor') {
+            // NEW: Safely map Jenkins parameters to environment variables
+            environment {
+                ENV_TO_SCAN = "${params.TARGET_ENV}"
+                EARS_TO_SCAN = "${params.TARGET_EARS}"
+            }
             steps {
-                // CHANGED: Using usernamePassword instead of sshUserPrivateKey
                 withCredentials([
                     usernamePassword(credentialsId: '33da6288-c83d-4585-99a1-ddd2b07e160b', usernameVariable: 'SSH_USER', passwordVariable: 'SSH_PASS'),
                     string(credentialsId: 'Jenikns-slack', variable: 'SLACK_WEBHOOK')
                 ]) {
                     script {
-                        echo "Starting TIBCO Log Scan for Environment: ${params.TARGET_ENV}"
+                        echo "Starting TIBCO Log Scan for Environment: ${ENV_TO_SCAN}"
+                        
+                        // We use the new mapped variables here so Linux understands them
                         sh '''
-                            export TARGET_ENV="${params.TARGET_ENV}"
-                            export TARGET_EARS="${params.TARGET_EARS}"
+                            export TARGET_ENV="$ENV_TO_SCAN"
+                            export TARGET_EARS="$EARS_TO_SCAN"
                             
                             python3 tibco_log_monitor.py
                         '''
@@ -51,7 +57,6 @@ pipeline {
             script {
                 withCredentials([string(credentialsId: 'Jenikns-slack', variable: 'SLACK_WEBHOOK')]) {
                     sh '''
-                        # Added quotes around the variable to prevent curl syntax errors
                         curl -X POST -H 'Content-type: application/json' \
                         --data '{"text":"❌ *CRITICAL:* Jenkins Job Failed to execute the TIBCO Monitor. Check Jenkins Console."}' \
                         "$SLACK_WEBHOOK"
