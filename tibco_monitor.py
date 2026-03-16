@@ -32,26 +32,28 @@ LOG_LINES = 500
 CONCURRENCY_LIMIT = 5
 MAX_RETRIES = 3
 
-SSH_KEY_PATH = os.environ.get("SSH_KEY_PATH")
+# CHANGED: Using Username and Password instead of SSH Key
+SSH_USER = os.environ.get("SSH_USER")
+SSH_PASS = os.environ.get("SSH_PASS")
+
 SLACK_WEBHOOK = os.environ.get("SLACK_WEBHOOK")
-SMTP_SERVER = os.environ.get("SMTP_SERVER", "localhost")
-ALERT_EMAIL = os.environ.get("ALERT_EMAIL", "sre-team@domain.com")
+SMTP_SERVER = os.environ.get("SMTP_SERVER", "smtp.urbanout.com")
+ALERT_EMAIL = os.environ.get("ALERT_EMAIL", "ven-hallu@urbn.com")
 
 TARGET_EARS = [e.strip() for e in os.environ.get("TARGET_EARS", "").split(",")] if os.environ.get("TARGET_EARS") else []
 TARGET_ENV = os.environ.get("TARGET_ENV", "STAGE")
 
 
 def run_ssh_command(host, command, retries=MAX_RETRIES):
-    """Executes an SSH command safely."""
+    """Executes an SSH command safely using Username and Password."""
     attempt = 0
     while attempt < retries:
         try:
-            key = paramiko.Ed25519Key.from_private_key_file(
-                SSH_KEY_PATH) if "ed25519" in SSH_KEY_PATH else paramiko.RSAKey.from_private_key_file(SSH_KEY_PATH)
             client = paramiko.SSHClient()
             client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            client.connect(hostname=host, username="ITApps", pkey=key, timeout=10)
-
+            # CHANGED: Connect using the password
+            client.connect(hostname=host, username=SSH_USER, password=SSH_PASS, timeout=10)
+            
             stdin, stdout, stderr = client.exec_command(command)
             exit_status = stdout.channel.recv_exit_status()
             out = stdout.read().decode('utf-8').strip()
@@ -62,8 +64,7 @@ def run_ssh_command(host, command, retries=MAX_RETRIES):
             attempt += 1
             logging.warning(f"SSH to {host} failed (Attempt {attempt}/{retries}): {e}")
             time.sleep(2 ** attempt)
-    return {"status": -1, "out": "", "err": "Connection failed", "unreachable": True}
-
+    return {"status": -1, "out": "", "err": "Connection failed", "unreachable": True}    
 
 def check_latest_log(host, app_name, log_dir, log_prefix, filters):
     """Pulls the latest log file and filters it using Python Regex."""
