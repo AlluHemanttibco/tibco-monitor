@@ -23,7 +23,6 @@ pipeline {
         }
         
         stage('Run TIBCO Log Monitor') {
-            // NEW: Safely map Jenkins parameters to environment variables
             environment {
                 ENV_TO_SCAN = "${params.TARGET_ENV}"
                 EARS_TO_SCAN = "${params.TARGET_EARS}"
@@ -36,10 +35,12 @@ pipeline {
                     script {
                         echo "Starting TIBCO Log Scan for Environment: ${ENV_TO_SCAN}"
                         
-                        // We use the new mapped variables here so Linux understands them
                         sh '''
                             export TARGET_ENV="$ENV_TO_SCAN"
                             export TARGET_EARS="$EARS_TO_SCAN"
+                            
+                            # NEW: Install the required Python libraries before running
+                            python3 -m pip install --user paramiko requests
                             
                             python3 tibco_monitor.py
                         '''
@@ -57,9 +58,12 @@ pipeline {
             script {
                 withCredentials([string(credentialsId: 'Jenikns-slack', variable: 'SLACK_WEBHOOK')]) {
                     sh '''
-                        curl -X POST -H 'Content-type: application/json' \
-                        --data '{"text":"❌ *CRITICAL:* Jenkins Job Failed to execute the TIBCO Monitor. Check Jenkins Console."}' \
-                        "$SLACK_WEBHOOK"
+                        echo "Slack notification is temporarily disabled."
+                        # Uncomment the lines below once the Slack Webhook URL is fixed
+                        
+                        # curl -X POST -H 'Content-type: application/json' \
+                        # --data '{"text":"❌ *CRITICAL:* Jenkins Job Failed to execute the TIBCO Monitor. Check Jenkins Console."}' \
+                        # "$SLACK_WEBHOOK"
                     '''
                 }
             }
