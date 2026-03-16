@@ -1,0 +1,43 @@
+{
+  "OrderInfoREST": {
+    "type": "bw",
+    "log_prefix": "OrderInfoREST",
+    "filters": {
+      "alert_on": ["ERROR", "Exception", "Timeout", "java.sql.SQLException"],
+      "ignore_patterns": [
+        "java.io.EOFException: Unexpected end of ZLIB",
+        "WARN.*deprecated"
+      ]
+    },
+    "deployments": {
+      "STAGE": {
+        "log_dir": "/opt/tibco515/tra/domain/TIBCO_515_STAGE/application/logs",
+        "machines": ["sushqstib15.urbanout.com", "sushqstib16.urbanout.com"]
+      }
+    }
+  },
+  "BWEnterprise": {
+    "type": "bw",
+    "log_prefix": "Enterprise",
+    "filters": {
+      "alert_on": ["ERROR", "Stuck thread", "OutOfMemoryError"],
+      "ignore_patterns": ["Connection reset by peer"]
+    },
+    "deployments": {
+      "DEV": {
+        "log_dir": "/opt/tibco515/tra/domain/TIBCO_515_DEV/application/logs",
+        "machines": ["sushqdtib04.urbanout.com"]
+      }
+    }
+  },
+  "IPFeedEnterpriseFileAdapter": {
+    "type": "bw",
+    "log_prefix": "IPFeedEnterpriseConfiguration ",
+    "deployments": {
+      "STAGE": {
+        "log_dir": "/opt/tibco515/tra/domain/TIBCO_515_STAGE/application/logs",
+        "machines": ["sushqstib14.urbanout.com"]
+      }
+    }
+  }
+}
