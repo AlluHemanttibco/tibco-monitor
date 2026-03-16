@@ -13,6 +13,10 @@
       "STAGE": {
         "log_dir": "/opt/tibco515/tra/domain/TIBCO_515_STAGE/application/logs",
         "machines": ["sushqstib15.urbanout.com", "sushqstib16.urbanout.com"]
+      },
+      "PROD": {
+        "log_dir": "/opt/tibco515/tra/domain/TIBCO_515_PROD_PCI/application/logs",
+        "machines": ["sushqptib19.urbanout.com", "sushqptib21.urbanout.com"]
       }
     }
   },
