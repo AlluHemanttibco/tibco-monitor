@@ -24,7 +24,7 @@ pipeline {
 
     // --- 3. NON-SECRET ENVIRONMENT VARIABLES ---
     environment {
-        SMTP_SERVER = 'localhost' 
+        SMTP_SERVER = 'smtp.urbanout.com' 
         ALERT_EMAIL = 'ven-hallu@urbn.com'
     }
 
@@ -60,7 +60,7 @@ pipeline {
                             export TARGET_EARS="${params.TARGET_EARS}"
                             
                             # Run the script
-                            python3 tibco_log_monitor.py
+                            python3 tibco_monitor.py
                         '''
                     }
                 }
