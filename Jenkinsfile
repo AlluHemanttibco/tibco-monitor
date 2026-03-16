@@ -1,6 +1,6 @@
 pipeline {
     // Run on the Linux machine where Python and the scripts are located
-    agent { label 'SUSHQSTIB14' } 
+    agent any 
     
     // --- 1. USER INTERFACE (Build with Parameters) ---
     parameters {
