@@ -32,7 +32,7 @@
   },
   "IPFeedEnterpriseFileAdapter": {
     "type": "bw",
-    "log_prefix": "IPFeedEnterpriseConfiguration ",
+    "log_prefix": "IPFeedEnterpriseConfiguration",
     "deployments": {
       "STAGE": {
         "log_dir": "/opt/tibco515/tra/domain/TIBCO_515_STAGE/application/logs",
