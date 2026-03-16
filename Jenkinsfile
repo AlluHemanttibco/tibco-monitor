@@ -39,9 +39,13 @@ pipeline {
                             export TARGET_ENV="$ENV_TO_SCAN"
                             export TARGET_EARS="$EARS_TO_SCAN"
                             
-                            # NEW: Install the required Python libraries before running
-                            python3 -m pip install --user paramiko requests
+                            # 1. Upgrade pip and install build tools
+                            python3 -m pip install --user --upgrade pip setuptools wheel
                             
+                            # 2. Pin cryptography to a version that does NOT require a Rust compiler
+                            python3 -m pip install --user cryptography==3.3.2 paramiko requests
+                            
+                            # 3. Execute the script
                             python3 tibco_monitor.py
                         '''
                     }
