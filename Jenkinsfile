@@ -2,11 +2,14 @@ pipeline {
     agent any 
     
     parameters {
-        choice(name: 'TARGET_ENV', choices: ['STAGE', 'DEV'], description: 'Select the TIBCO Environment to scan.')
-        string(name: 'TARGET_EARS', defaultValue: 'OrderInfoREST, BWEnterprise, IPFeedEnterpriseFileAdapter', description: 'Optional: Comma-separated list of EARs to check.')
+        // NEW: Added 'ALL' to the top, and added all your production domains so you can select them manually.
+        choice(name: 'TARGET_ENV', choices: ['ALL', 'STAGE', 'DEV', 'PHL_PCI', 'PHL_NPCI', 'DR_PCI', 'DR_NPCI'], description: 'Select Environment. ALL runs everything in config.')
+        string(name: 'TARGET_EARS', defaultValue: '', description: 'Optional: Comma-separated list of EARs to check. Leave blank to scan ALL.')
     }
 
     triggers {
+        // Remember: this runs once a day at 3:00 AM. 
+        // If you want every 3 hours, use: cron('H */3 * * *')
         cron('0 3 * * *') 
     }
 
@@ -39,13 +42,9 @@ pipeline {
                             export TARGET_ENV="$ENV_TO_SCAN"
                             export TARGET_EARS="$EARS_TO_SCAN"
                             
-                            # 1. Upgrade pip and install build tools
                             python3 -m pip install --user --upgrade pip setuptools wheel
-                            
-                            # 2. Pin cryptography to a version that does NOT require a Rust compiler
                             python3 -m pip install --user cryptography==3.3.2 paramiko requests
                             
-                            # 3. Execute the script
                             python3 tibco_monitor.py
                         '''
                     }
@@ -63,10 +62,8 @@ pipeline {
                 withCredentials([string(credentialsId: 'Jenikns-slack', variable: 'SLACK_WEBHOOK')]) {
                     sh '''
                         echo "Slack notification is temporarily disabled."
-                        # Uncomment the lines below once the Slack Webhook URL is fixed
-                        
                         # curl -X POST -H 'Content-type: application/json' \
-                        # --data '{"text":"❌ *CRITICAL:* Jenkins Job Failed to execute the TIBCO Monitor. Check Jenkins Console."}' \
+                        # --data '{"text":"❌ *CRITICAL:* Jenkins Job Failed to execute the TIBCO Monitor."}' \
                         # "$SLACK_WEBHOOK"
                     '''
                 }
