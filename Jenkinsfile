@@ -2,14 +2,18 @@ pipeline {
     agent any 
     
     parameters {
-        // NEW: Added 'ALL' to the top, and added all your production domains so you can select them manually.
-        choice(name: 'TARGET_ENV', choices: ['ALL', 'STAGE', 'DEV', 'PHL_PCI', 'PHL_NPCI', 'DR_PCI', 'DR_NPCI'], description: 'Select Environment. ALL runs everything in config.')
+        // NEW: Checkboxes for every environment! (Defaulted to true so the 3 AM job scans everything)
+        booleanParam(name: 'SCAN_STAGE', defaultValue: true, description: 'Scan STAGE Environment')
+        booleanParam(name: 'SCAN_DEV', defaultValue: true, description: 'Scan DEV Environment')
+        booleanParam(name: 'SCAN_PHL_PCI', defaultValue: true, description: 'Scan PHL_PCI Environment')
+        booleanParam(name: 'SCAN_PHL_NPCI', defaultValue: true, description: 'Scan PHL_NPCI Environment')
+        booleanParam(name: 'SCAN_DR_PCI', defaultValue: true, description: 'Scan DR_PCI Environment')
+        booleanParam(name: 'SCAN_DR_NPCI', defaultValue: true, description: 'Scan DR_NPCI Environment')
+        
         string(name: 'TARGET_EARS', defaultValue: '', description: 'Optional: Comma-separated list of EARs to check. Leave blank to scan ALL.')
     }
 
     triggers {
-        // Remember: this runs once a day at 3:00 AM. 
-        // If you want every 3 hours, use: cron('H */3 * * *')
         cron('0 3 * * *') 
     }
 
@@ -26,21 +30,30 @@ pipeline {
         }
         
         stage('Run TIBCO Log Monitor') {
-            environment {
-                ENV_TO_SCAN = "${params.TARGET_ENV}"
-                EARS_TO_SCAN = "${params.TARGET_EARS}"
-            }
             steps {
                 withCredentials([
                     usernamePassword(credentialsId: '33da6288-c83d-4585-99a1-ddd2b07e160b', usernameVariable: 'SSH_USER', passwordVariable: 'SSH_PASS'),
                     string(credentialsId: 'Jenikns-slack', variable: 'SLACK_WEBHOOK')
                 ]) {
                     script {
-                        echo "Starting TIBCO Log Scan for Environment: ${ENV_TO_SCAN}"
+                        // Dynamically build a list based on which checkboxes you ticked
+                        def envList = []
+                        if (params.SCAN_STAGE) envList.add('STAGE')
+                        if (params.SCAN_DEV) envList.add('DEV')
+                        if (params.SCAN_PHL_PCI) envList.add('PROD') // Using PROD to match your config.json temporarily, you can update this to PHL_PCI later!
+                        if (params.SCAN_PHL_NPCI) envList.add('PHL_NPCI')
+                        if (params.SCAN_DR_PCI) envList.add('DR_PCI')
+                        if (params.SCAN_DR_NPCI) envList.add('DR_NPCI')
+                        
+                        // Save the list (e.g., "STAGE,DEV") to a safe environment variable
+                        env.COMPILED_ENVS = envList.isEmpty() ? "ALL" : envList.join(',')
+                        env.COMPILED_EARS = params.TARGET_EARS
+                        
+                        echo "Starting TIBCO Log Scan for Checked Environments: ${env.COMPILED_ENVS}"
                         
                         sh '''
-                            export TARGET_ENV="$ENV_TO_SCAN"
-                            export TARGET_EARS="$EARS_TO_SCAN"
+                            export TARGET_ENV="$COMPILED_ENVS"
+                            export TARGET_EARS="$COMPILED_EARS"
                             
                             python3 -m pip install --user --upgrade pip setuptools wheel
                             python3 -m pip install --user cryptography==3.3.2 paramiko requests
@@ -62,9 +75,6 @@ pipeline {
                 withCredentials([string(credentialsId: 'Jenikns-slack', variable: 'SLACK_WEBHOOK')]) {
                     sh '''
                         echo "Slack notification is temporarily disabled."
-                        # curl -X POST -H 'Content-type: application/json' \
-                        # --data '{"text":"❌ *CRITICAL:* Jenkins Job Failed to execute the TIBCO Monitor."}' \
-                        # "$SLACK_WEBHOOK"
                     '''
                 }
             }
