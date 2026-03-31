@@ -36,7 +36,9 @@ SMTP_SERVER = os.environ.get("SMTP_SERVER", "smtp.urbanout.com")
 ALERT_EMAIL = os.environ.get("ALERT_EMAIL", "ven-hallu@urbn.com")
 
 TARGET_EARS = [e.strip() for e in os.environ.get("TARGET_EARS", "").split(",")] if os.environ.get("TARGET_EARS") else []
-TARGET_ENV = os.environ.get("TARGET_ENV", "ALL") 
+
+# CHANGED: Now expects a list of environments like "STAGE,DEV"
+TARGET_ENVS = [e.strip().upper() for e in os.environ.get("TARGET_ENV", "ALL").split(",")]
 
 def run_ssh_command(host, command, retries=MAX_RETRIES):
     attempt = 0
@@ -104,7 +106,6 @@ def generate_report(results):
             
     return report_data
 
-# CHANGED: Loops through the data and sends one email per environment
 def notify(report_data):
     if not report_data:
         logging.info("Everything is healthy across all checked environments.")
@@ -114,12 +115,10 @@ def notify(report_data):
         critical = data["critical"]
         info = data["info"]
         
-        # Skip if this specific environment has no issues
         if not critical and not info:
             logging.info(f"[{env}] is fully healthy. No email needed.")
             continue
             
-        # Build the HTML specifically for this environment
         html = f"""
         <html>
           <body style="font-family: Arial, sans-serif;">
@@ -133,7 +132,6 @@ def notify(report_data):
         """
 
         msg = MIMEMultipart()
-        # Make the subject line specific to the environment
         msg['Subject'] = f"TIBCO EAR Report [{env}] - {'CRITICAL' if critical else 'INFO'}"
         msg['From'] = "jenkins@urbanout.com"
         msg['To'] = ALERT_EMAIL
@@ -147,7 +145,7 @@ def notify(report_data):
             logging.error(f"Failed to send email for {env}: {e}")
 
 if __name__ == "__main__":
-    logging.info(f"Starting checks for Env: {TARGET_ENV}, EARs: {TARGET_EARS if TARGET_EARS else 'ALL'}")
+    logging.info(f"Starting checks for Envs: {TARGET_ENVS}, EARs: {TARGET_EARS if TARGET_EARS else 'ALL'}")
 
     results = []
     with ThreadPoolExecutor(max_workers=CONCURRENCY_LIMIT) as executor:
@@ -159,7 +157,8 @@ if __name__ == "__main__":
             deployments = config.get("deployments", {})
             for env_name, env_details in deployments.items():
                 
-                if TARGET_ENV != "ALL" and TARGET_ENV != env_name: 
+                # CHANGED: Now checks if the environment is in the list of checked boxes
+                if "ALL" not in TARGET_ENVS and env_name.upper() not in TARGET_ENVS: 
                     continue
 
                 log_dir = env_details["log_dir"]
