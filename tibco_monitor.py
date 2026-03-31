@@ -36,7 +36,7 @@ SMTP_SERVER = os.environ.get("SMTP_SERVER", "smtp.urbanout.com")
 ALERT_EMAIL = os.environ.get("ALERT_EMAIL", "ven-hallu@urbn.com")
 
 TARGET_EARS = [e.strip() for e in os.environ.get("TARGET_EARS", "").split(",")] if os.environ.get("TARGET_EARS") else []
-TARGET_ENV = os.environ.get("TARGET_ENV", "ALL") # Now defaults to "ALL"
+TARGET_ENV = os.environ.get("TARGET_ENV", "ALL") 
 
 def run_ssh_command(host, command, retries=MAX_RETRIES):
     attempt = 0
@@ -58,7 +58,6 @@ def run_ssh_command(host, command, retries=MAX_RETRIES):
             time.sleep(2 ** attempt)
     return {"status": -1, "out": "", "err": "Connection failed", "unreachable": True}  
 
-# NEW: We pass env_name into this function so we know which section it belongs to
 def check_latest_log(env_name, host, app_name, log_dir, log_prefix, filters):
     ps_cmd = f"pgrep -f '{log_prefix}.*tra'"
     ps_res = run_ssh_command(host, ps_cmd)
@@ -91,11 +90,8 @@ def check_latest_log(env_name, host, app_name, log_dir, log_prefix, filters):
     state = "ERROR" if found_errors else "HEALTHY"
     return {"env": env_name, "host": host, "app": app_name, "state": state, "errors": found_errors[:3]}
 
-
 def generate_report(results):
-    """Groups the results dynamically by Environment."""
     report_data = {}
-    
     for r in results:
         env = r["env"]
         if env not in report_data:
@@ -108,52 +104,47 @@ def generate_report(results):
             
     return report_data
 
-
+# CHANGED: Loops through the data and sends one email per environment
 def notify(report_data):
     if not report_data:
         logging.info("Everything is healthy across all checked environments.")
         return
 
-    # Build the dynamic HTML Email
-    html = f"""
-    <html>
-      <body style="font-family: Arial, sans-serif;">
-        <h2>TIBCO EAR Status Report ({TARGET_ENV})</h2>
-    """
-    
-    # Loop through each environment and create its own section
     for env, data in report_data.items():
         critical = data["critical"]
         info = data["info"]
         
-        # Skip an environment if there are no errors or stopped instances in it
+        # Skip if this specific environment has no issues
         if not critical and not info:
+            logging.info(f"[{env}] is fully healthy. No email needed.")
             continue
             
-        html += f"""
-        <hr>
-        <h3 style="background-color: #f2f2f2; padding: 5px;">[ {env} ENVIRONMENT ]</h3>
-        <h4 style="color: red; margin-bottom: 2px;">Critical Errors Found</h4>
-        <ul style="margin-top: 5px;">{''.join([f"<li>{c}</li>" for c in critical]) if critical else "<li><i>None</i></li>"}</ul>
-        <h4 style="color: gray; margin-bottom: 2px;">Info / Process Stopped / Unreachable</h4>
-        <ul style="margin-top: 5px;">{''.join([f"<li>{i}</li>" for i in info]) if info else "<li><i>None</i></li>"}</ul>
+        # Build the HTML specifically for this environment
+        html = f"""
+        <html>
+          <body style="font-family: Arial, sans-serif;">
+            <h2 style="background-color: #f2f2f2; padding: 10px;">TIBCO EAR Status Report ({env})</h2>
+            <h3 style="color: red;">Critical Errors Found</h3>
+            <ul>{''.join([f"<li>{c}</li>" for c in critical]) if critical else "<li><i>None</i></li>"}</ul>
+            <h3 style="color: gray;">Info / Process Stopped / Unreachable</h3>
+            <ul>{''.join([f"<li>{i}</li>" for i in info]) if info else "<li><i>None</i></li>"}</ul>
+          </body>
+        </html>
         """
+
+        msg = MIMEMultipart()
+        # Make the subject line specific to the environment
+        msg['Subject'] = f"TIBCO EAR Report [{env}] - {'CRITICAL' if critical else 'INFO'}"
+        msg['From'] = "jenkins@urbanout.com"
+        msg['To'] = ALERT_EMAIL
+        msg.attach(MIMEText(html, 'html'))
         
-    html += "</body></html>"
-
-    msg = MIMEMultipart()
-    msg['Subject'] = f"TIBCO EAR Report [{TARGET_ENV}]"
-    msg['From'] = "jenkins@urbanout.com"
-    msg['To'] = ALERT_EMAIL
-    msg.attach(MIMEText(html, 'html'))
-    
-    try:
-        with smtplib.SMTP(SMTP_SERVER) as server:
-            server.send_message(msg)
-            logging.info(f"Email report successfully sent to {ALERT_EMAIL}")
-    except Exception as e:
-        logging.error(f"Failed to send email: {e}")
-
+        try:
+            with smtplib.SMTP(SMTP_SERVER) as server:
+                server.send_message(msg)
+                logging.info(f"Email report successfully sent for {env}")
+        except Exception as e:
+            logging.error(f"Failed to send email for {env}: {e}")
 
 if __name__ == "__main__":
     logging.info(f"Starting checks for Env: {TARGET_ENV}, EARs: {TARGET_EARS if TARGET_EARS else 'ALL'}")
@@ -168,7 +159,6 @@ if __name__ == "__main__":
             deployments = config.get("deployments", {})
             for env_name, env_details in deployments.items():
                 
-                # NEW LOGIC: If TARGET_ENV isn't "ALL" and it doesn't match this loop, skip it
                 if TARGET_ENV != "ALL" and TARGET_ENV != env_name: 
                     continue
 
