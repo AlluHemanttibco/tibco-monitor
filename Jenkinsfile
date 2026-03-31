@@ -5,10 +5,10 @@ pipeline {
         // NEW: Checkboxes for every environment! (Defaulted to true so the 3 AM job scans everything)
         booleanParam(name: 'SCAN_STAGE', defaultValue: true, description: 'Scan STAGE Environment')
         booleanParam(name: 'SCAN_DEV', defaultValue: true, description: 'Scan DEV Environment')
-        booleanParam(name: 'SCAN_PHL_PCI', defaultValue: true, description: 'Scan PHL_PCI Environment')
-        booleanParam(name: 'SCAN_PHL_NPCI', defaultValue: true, description: 'Scan PHL_NPCI Environment')
-        booleanParam(name: 'SCAN_DR_PCI', defaultValue: true, description: 'Scan DR_PCI Environment')
-        booleanParam(name: 'SCAN_DR_NPCI', defaultValue: true, description: 'Scan DR_NPCI Environment')
+        booleanParam(name: 'SCAN_PHL_PCI', defaultValue: false, description: 'Scan PHL_PCI Environment')
+        booleanParam(name: 'SCAN_PHL_NPCI', defaultValue: false, description: 'Scan PHL_NPCI Environment')
+        booleanParam(name: 'SCAN_DR_PCI', defaultValue: false, description: 'Scan DR_PCI Environment')
+        booleanParam(name: 'SCAN_DR_NPCI', defaultValue: false, description: 'Scan DR_NPCI Environment')
         
         string(name: 'TARGET_EARS', defaultValue: '', description: 'Optional: Comma-separated list of EARs to check. Leave blank to scan ALL.')
     }
