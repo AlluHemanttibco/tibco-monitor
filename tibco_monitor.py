@@ -108,39 +108,64 @@ def generate_report(results):
 
 def notify(report_data):
     if not report_data:
-        logging.info("Everything is healthy across all checked environments.")
+        logging.info("No environments were scanned. No emails to send.")
         return
 
+    # Loop through each environment and send a SEPARATE email for each
     for env, data in report_data.items():
         critical = data["critical"]
         info = data["info"]
         
-        if not critical and not info:
-            logging.info(f"[{env}] is fully healthy. No email needed.")
-            continue
-            
+        # Build the HTML Email for THIS specific environment
         html = f"""
         <html>
           <body style="font-family: Arial, sans-serif;">
-            <h2 style="background-color: #f2f2f2; padding: 10px;">TIBCO EAR Status Report ({env})</h2>
-            <h3 style="color: red;">Critical Errors Found</h3>
-            <ul>{''.join([f"<li>{c}</li>" for c in critical]) if critical else "<li><i>None</i></li>"}</ul>
-            <h3 style="color: gray;">Info / Process Stopped / Unreachable</h3>
-            <ul>{''.join([f"<li>{i}</li>" for i in info]) if info else "<li><i>None</i></li>"}</ul>
-          </body>
-        </html>
+            <h2>TIBCO EAR Status Report ({env})</h2>
+            <hr>
         """
+        
+        # If both lists are empty, the environment is completely healthy
+        if not critical and not info:
+            logging.info(f"[{env}] is fully healthy. Sending 'All Clear' email.")
+            html += f"""
+            <div style="background-color: #d4edda; color: #155724; padding: 15px; border-radius: 5px; border: 1px solid #c3e6cb;">
+                <h3 style="margin-top: 0;">✅ All Monitored EARs are HEALTHY</h3>
+                <p style="margin-bottom: 0;">No critical errors, stopped processes, or missing logs were found in the <b>{env}</b> environment.</p>
+            </div>
+            """
+        else:
+            # Otherwise, list the errors and info as usual
+            logging.info(f"[{env}] has issues. Sending alert email.")
+            html += f"""
+            <h3 style="background-color: #f2f2f2; padding: 5px;">[ {env} ENVIRONMENT ISSUES ]</h3>
+            """
+            
+            if critical:
+                html += f"""
+                <h4 style="color: red; margin-bottom: 2px;">Critical Errors Found</h4>
+                <ul style="margin-top: 5px;">{''.join([f"<li>{c}</li>" for c in critical])}</ul>
+                """
+                
+            if info:
+                html += f"""
+                <h4 style="color: gray; margin-bottom: 2px;">Info / Process Stopped / Unreachable</h4>
+                <ul style="margin-top: 5px;">{''.join([f"<li>{i}</li>" for i in info])}</ul>
+                """
+        
+        html += "</body></html>"
 
+        # Prepare the email message for THIS environment
         msg = MIMEMultipart()
-        msg['Subject'] = f"TIBCO EAR Report [{env}] - {'CRITICAL' if critical else 'INFO'}"
+        msg['Subject'] = f"TIBCO EAR Report [{env}] - {'HEALTHY' if not critical and not info else 'ACTION REQUIRED'}"
         msg['From'] = "jenkins@urbanout.com"
         msg['To'] = ALERT_EMAIL
         msg.attach(MIMEText(html, 'html'))
         
+        # Send the email
         try:
             with smtplib.SMTP(SMTP_SERVER) as server:
                 server.send_message(msg)
-                logging.info(f"Email report successfully sent for {env}")
+                logging.info(f"Email report successfully sent for {env} to {ALERT_EMAIL}")
         except Exception as e:
             logging.error(f"Failed to send email for {env}: {e}")
 
