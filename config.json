@@ -13,10 +13,6 @@
       "STAGE": {
         "log_dir": "/opt/tibco515/tra/domain/TIBCO_515_STAGE/application/logs",
         "machines": ["sushqstib15.urbanout.com", "sushqstib16.urbanout.com"]
-      },
-      "PROD": {
-        "log_dir": "/opt/tibco515/tra/domain/TIBCO_515_PROD_PCI/application/logs",
-        "machines": ["sushqptib19.urbanout.com", "sushqptib21.urbanout.com"]
       }
     }
   },
@@ -34,6 +30,16 @@
       }
     }
   },
+  "BWEnterpriseFileAdapter": {
+    "type": "bw",
+    "log_prefix": "BWEnterpriseFileAdapter",
+    "deployments": {
+      "STAGE": {
+        "log_dir": "/opt/tibco515/tra/domain/TIBCO_515_STAGE/application/logs",
+        "machines": ["sushqstib14.urbanout.com"]
+      }
+    }
+  },
   "IPFeedEnterpriseFileAdapter": {
     "type": "bw",
     "log_prefix": "IPFeedEnterpriseConfiguration",
@@ -41,6 +47,186 @@
       "STAGE": {
         "log_dir": "/opt/tibco515/tra/domain/TIBCO_515_STAGE/application/logs",
         "machines": ["sushqstib14.urbanout.com"]
+      }
+    }
+  },
+  "IPFileAdapter": {
+    "type": "bw",
+    "log_prefix": "IPFileAdapter",
+    "deployments": {
+      "STAGE": {
+        "log_dir": "/opt/tibco515/tra/domain/TIBCO_515_STAGE/application/logs",
+        "machines": ["sushqstib14.urbanout.com"]
+      }
+    }
+  },
+  "GPOSDBAdapter-UK": {
+    "type": "bw",
+    "log_prefix": "GPOSDBAdapter-UK",
+    "deployments": {
+      "STAGE": {
+        "log_dir": "/opt/tibco515/tra/domain/TIBCO_515_STAGE/application/logs",
+        "machines": ["sushqstib14.urbanout.com"]
+      }
+    }
+  },
+  "GPOSDBAdapter-US": {
+    "type": "bw",
+    "log_prefix": "GPOSDBAdapter-US",
+    "deployments": {
+      "STAGE": {
+        "log_dir": "/opt/tibco515/tra/domain/TIBCO_515_STAGE/application/logs",
+        "machines": ["sushqstib14.urbanout.com"]
+      }
+    }
+  },
+  "Bluecherry_FileAdapter": {
+    "type": "bw",
+    "log_prefix": "Bluecherry_FileAdapter",
+    "deployments": {
+      "STAGE": {
+        "log_dir": "/opt/tibco515/tra/domain/TIBCO_515_STAGE/application/logs",
+        "machines": ["sushqstib15.urbanout.com"]
+      }
+    }
+  },
+  "BW_GLConversion_FileAdapter-UK": {
+    "type": "bw",
+    "log_prefix": "BW_GLConversion_FileAdapter-UK",
+    "deployments": {
+      "STAGE": {
+        "log_dir": "/opt/tibco515/tra/domain/TIBCO_515_STAGE/application/logs",
+        "machines": ["sushqstib15.urbanout.com"]
+      }
+    }
+  },
+  "BW_GLConversion_FileAdapter-US": {
+    "type": "bw",
+    "log_prefix": "BW_GLConversion_FileAdapter-US",
+    "deployments": {
+      "STAGE": {
+        "log_dir": "/opt/tibco515/tra/domain/TIBCO_515_STAGE/application/logs",
+        "machines": ["sushqstib15.urbanout.com"]
+      }
+    }
+  },
+  "RFGun_Adpater": {
+    "type": "bw",
+    "log_prefix": "BW_RFGun_Adapter",
+    "deployments": {
+      "STAGE": {
+        "log_dir": "/opt/tibco515/tra/domain/TIBCO_515_STAGE/application/logs",
+        "machines": ["sushqstib14.urbanout.com"]
+      }
+    }
+  },
+  "BW_Accertify": {
+    "type": "bw",
+    "log_prefix": "BW_Accertify",
+    "deployments": {
+      "DEV": {
+        "log_dir": "/opt/tibco515/tra/domain/TIBCO_515_DEV/application/logs",
+        "machines": ["sushqdtib04.urbanout.com", "sushqdtib05.urbanout.com"]
+      },
+      "STAGE": {
+        "log_dir": "/opt/tibco515/tra/domain/TIBCO_515_STAGE/application/logs",
+        "machines": ["sushqstib14.urbanout.com", "sushqstib15.urbanout.com"]
+      }
+    }
+  },
+  "BW_OMS_Order": {
+    "type": "bw",
+    "log_prefix": "BW_OMS_Order",
+    "deployments": {
+      "STAGE": {
+        "log_dir": "/opt/tibco515/tra/domain/TIBCO_515_STAGE/application/logs",
+        "machines": ["sushqstib13.urbanout.com", "sushqstib18.urbanout.com"]
+      }
+    }
+  },
+  "BW_Payments": {
+    "type": "bw",
+    "log_prefix": "BW_Payments",
+    "deployments": {
+      "STAGE": {
+        "log_dir": "/opt/tibco515/tra/domain/TIBCO_515_STAGE/application/logs",
+        "machines": ["sushqstib15.urbanout.com"]
+      }
+    }
+  },
+  "BW_TaxDuty_REST": {
+    "type": "bw",
+    "log_prefix": "BW_TaxDuty_REST",
+    "deployments": {
+      "DEV": {
+        "log_dir": "/opt/tibco515/tra/domain/TIBCO_515_DEV/application/logs",
+        "machines": ["sushqdtib04.urbanout.com", "sushqdtib05.urbanout.com"]
+      },
+      "STAGE": {
+        "log_dir": "/opt/tibco515/tra/domain/TIBCO_515_STAGE/application/logs",
+        "machines": ["sushqstib13.urbanout.com", "sushqstib16.urbanout.com"]
+      }
+    }
+  },
+  "OrderSubmit": {
+    "type": "bw",
+    "log_prefix": "OrderSubmit",
+    "deployments": {
+      "STAGE": {
+        "log_dir": "/opt/tibco515/tra/domain/TIBCO_515_STAGE/application/logs",
+        "machines": ["sushqstib15.urbanout.com"]
+      }
+    }
+  },
+  "ReserveInventory": {
+    "type": "bw",
+    "log_prefix": "ReserveInventory",
+    "deployments": {
+      "STAGE": {
+        "log_dir": "/opt/tibco515/tra/domain/TIBCO_515_STAGE/application/logs",
+        "machines": ["sushqstib13.urbanout.com", "sushqstib15.urbanout.com"]
+      }
+    }
+  },
+  "EmailReceipts": {
+    "type": "bw",
+    "log_prefix": "EmailReceipts",
+    "deployments": {
+      "STAGE": {
+        "log_dir": "/opt/tibco515/tra/domain/TIBCO_515_STAGE/application/logs",
+        "machines": ["sushqstib14.urbanout.com", "sushqstib15.urbanout.com"],
+        "expected_stopped": ["sushqstib14.urbanout.com"]
+      }
+    }
+  },
+  "MPOS_REST": {
+    "type": "bw",
+    "log_prefix": "BW_MPOS_REST",
+    "deployments": {
+      "STAGE": {
+        "log_dir": "/opt/tibco515/tra/domain/TIBCO_515_STAGE/application/logs",
+        "machines": ["sushqstib13.urbanout.com", "sushqstib14.urbanout.com"],
+        "expected_stopped": ["sushqstib13.urbanout.com"]
+      }
+    }
+  },
+  "MPOS_SOAP": {
+    "type": "bw",
+    "log_prefix": "BW_MPOS_SOAP",
+    "deployments": {
+      "STAGE": {
+        "log_dir": "/opt/tibco515/tra/domain/TIBCO_515_STAGE/application/logs",
+        "machines": ["sushqstib16.urbanout.com"]
+      }
+    }
+  },
+  "MPOS_DB": {
+    "type": "bw",
+    "log_prefix": "BW_MPOS_DB",
+    "deployments": {
+      "STAGE": {
+        "log_dir": "/opt/tibco515/tra/domain/TIBCO_515_STAGE/application/logs",
+        "machines": ["sushqstib16.urbanout.com"]
       }
     }
   }
