@@ -60,10 +60,15 @@ def run_ssh_command(host, command, retries=MAX_RETRIES):
             time.sleep(2 ** attempt)
     return {"status": -1, "out": "", "err": "Connection failed", "unreachable": True}  
 
-def check_latest_log(env_name, host, app_name, log_dir, log_prefix, filters):
+def check_latest_log(env_name, host, app_name, log_dir, log_prefix, filters, expected_stopped):
     ps_cmd = f"pgrep -f '{log_prefix}.*tra'"
     ps_res = run_ssh_command(host, ps_cmd)
 
+    # NEW LOGIC: If it's unreachable or stopped, but we EXPECTED it to be, ignore it!
+    if host in expected_stopped and (ps_res["unreachable"] or ps_res["status"] != 0):
+        return {"env": env_name, "host": host, "app": app_name, "state": "EXPECTED_STOPPED", "errors": []}
+
+    # Otherwise, alert as normal
     if ps_res["unreachable"]:
         return {"env": env_name, "host": host, "app": app_name, "state": "UNREACHABLE", "errors": []}
     if ps_res["status"] != 0:
@@ -170,7 +175,8 @@ def notify(report_data):
             logging.error(f"Failed to send email for {env}: {e}")
 
 if __name__ == "__main__":
-    logging.info(f"Starting checks for Envs: {TARGET_ENVS}, EARs: {TARGET_EARS if TARGET_EARS else 'ALL'}")
+    # Note: Using TARGET_ENV.split(',') allows for the multiple Jenkins checkboxes to work correctly
+    logging.info(f"Starting checks for Envs: {TARGET_ENV.split(',')}, EARs: {TARGET_EARS if TARGET_EARS else 'ALL'}")
 
     results = []
     with ThreadPoolExecutor(max_workers=CONCURRENCY_LIMIT) as executor:
@@ -182,17 +188,21 @@ if __name__ == "__main__":
             deployments = config.get("deployments", {})
             for env_name, env_details in deployments.items():
                 
-                # CHANGED: Now checks if the environment is in the list of checked boxes
-                if "ALL" not in TARGET_ENVS and env_name.upper() not in TARGET_ENVS: 
+                # Skip if this environment wasn't checked in Jenkins
+                if TARGET_ENV != "ALL" and env_name not in TARGET_ENV.split(','): 
                     continue
 
                 log_dir = env_details["log_dir"]
                 machines = env_details["machines"]
+                # NEW: Grab the expected_stopped list from config. Defaults to empty list [] if not found.
+                expected_stopped = env_details.get("expected_stopped", [])
+                
                 log_prefix = config["log_prefix"]
                 filters = config.get("filters", {"alert_on": ["ERROR"], "ignore_patterns": []})
 
                 for host in machines:
-                    futures.append(executor.submit(check_latest_log, env_name, host, app_name, log_dir, log_prefix, filters))
+                    # NEW: Pass expected_stopped to the function
+                    futures.append(executor.submit(check_latest_log, env_name, host, app_name, log_dir, log_prefix, filters, expected_stopped))
 
         for future in as_completed(futures):
             results.append(future.result())
