@@ -37,8 +37,8 @@ ALERT_EMAIL = os.environ.get("ALERT_EMAIL", "ven-hallu@urbn.com")
 
 TARGET_EARS = [e.strip() for e in os.environ.get("TARGET_EARS", "").split(",")] if os.environ.get("TARGET_EARS") else []
 
-# CHANGED: Now expects a list of environments like "STAGE,DEV"
-TARGET_ENVS = [e.strip().upper() for e in os.environ.get("TARGET_ENV", "ALL").split(",")]
+# FIX: Kept as a raw string so the split(',') logic at the bottom works correctly
+TARGET_ENV = os.environ.get("TARGET_ENV", "ALL")
 
 def run_ssh_command(host, command, retries=MAX_RETRIES):
     attempt = 0
