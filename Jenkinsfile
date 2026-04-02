@@ -19,7 +19,7 @@ pipeline {
 
     environment {
         SMTP_SERVER = 'smtp.urbanout.com' 
-        ALERT_EMAIL = 'ven-hallu@urbn.com','tibco-ears-report-aaaatxqltr27c65yzde2ijr5y4@urbn.slack.com'
+        ALERT_EMAIL = 'ven-hallu@urbn.com,tibco-ears-report-aaaatxqltr27c65yzde2ijr5y4@urbn.slack.com'
     }
 
     stages {
