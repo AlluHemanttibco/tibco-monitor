@@ -14,7 +14,10 @@ pipeline {
     }
 
     triggers {
-        cron('0 3 * * *') 
+        cron('''TZ=Asia/Kolkata
+        30 7 * * *
+        0 18 * * *
+        0 1 * * *''')
     }
 
     environment {
