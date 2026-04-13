@@ -10,12 +10,12 @@ import re
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import requests
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 
-# --- 1. LOAD EXTERNAL CONFIGURATION ---
+# --- 1. LOAD EXTERNAL CONFIGURATION & MEMORY ---
 CONFIG_FILE = os.environ.get("CONFIG_FILE_PATH", "config.json")
+STATE_FILE = "ear_state.json" # Acts as the script's memory
 
 try:
     with open(CONFIG_FILE, 'r') as f:
@@ -24,6 +24,14 @@ except Exception as e:
     logging.error(f"Failed to load config file: {e}")
     sys.exit(1)
 
+try:
+    with open(STATE_FILE, 'r') as sf:
+        PREV_STATE = json.load(sf)
+except Exception:
+    PREV_STATE = {}
+
+NEW_STATE = {}
+
 # --- 2. ENVIRONMENT VARIABLES ---
 LOG_LINES = 500
 CONCURRENCY_LIMIT = 5
@@ -31,13 +39,10 @@ MAX_RETRIES = 3
 
 SSH_USER = os.environ.get("SSH_USER")
 SSH_PASS = os.environ.get("SSH_PASS")
-SLACK_WEBHOOK = os.environ.get("SLACK_WEBHOOK")
 SMTP_SERVER = os.environ.get("SMTP_SERVER", "smtp.urbanout.com")
 ALERT_EMAIL = os.environ.get("ALERT_EMAIL", "ven-hallu@urbn.com")
 
 TARGET_EARS = [e.strip() for e in os.environ.get("TARGET_EARS", "").split(",")] if os.environ.get("TARGET_EARS") else []
-
-# FIX: Kept as a raw string so the split(',') logic at the bottom works correctly
 TARGET_ENV = os.environ.get("TARGET_ENV", "ALL")
 
 def run_ssh_command(host, command, retries=MAX_RETRIES):
@@ -64,15 +69,13 @@ def check_latest_log(env_name, host, app_name, log_dir, log_prefix, filters, exp
     ps_cmd = f"pgrep -f '{log_prefix}.*tra'"
     ps_res = run_ssh_command(host, ps_cmd)
 
-    # NEW LOGIC: If it's unreachable or stopped, but we EXPECTED it to be, ignore it!
     if host in expected_stopped and (ps_res["unreachable"] or ps_res["status"] != 0):
         return {"env": env_name, "host": host, "app": app_name, "state": "EXPECTED_STOPPED", "errors": []}
 
-    # Otherwise, alert as normal
     if ps_res["unreachable"]:
-        return {"env": env_name, "host": host, "app": app_name, "state": "UNREACHABLE", "errors": []}
+        return {"env": env_name, "host": host, "app": app_name, "state": "UNREACHABLE", "errors": ["Failed to connect via SSH."]}
     if ps_res["status"] != 0:
-        return {"env": env_name, "host": host, "app": app_name, "state": "STOPPED", "errors": []}
+        return {"env": env_name, "host": host, "app": app_name, "state": "STOPPED", "errors": ["Process is not running."]}
 
     full_log_path = f"{log_dir}/{app_name}"
     log_cmd = f"cd {full_log_path} && LATEST_LOG=$(ls -1t {log_prefix}*.log 2>/dev/null | head -n 1) && if [ -z \"$LATEST_LOG\" ]; then echo 'LOG_NOT_FOUND'; else tail -n {LOG_LINES} \"$LATEST_LOG\"; fi"
@@ -95,118 +98,191 @@ def check_latest_log(env_name, host, app_name, log_dir, log_prefix, filters, exp
             found_errors.append(line.strip())
 
     state = "ERROR" if found_errors else "HEALTHY"
-    return {"env": env_name, "host": host, "app": app_name, "state": state, "errors": found_errors[:3]}
+    return {"env": env_name, "host": host, "app": app_name, "state": state, "errors": found_errors[:1]} # Keep the primary error to save space
 
-def generate_report(results):
-    report_data = {}
+def generate_unified_report(results):
+    report = {
+        "healthy_envs": set(),
+        "problem_envs": set(),
+        "recoveries": [],
+        "issues": []
+    }
+    
+    # Process results and compare with memory
     for r in results:
         env = r["env"]
-        if env not in report_data:
-            report_data[env] = {"critical": [], "info": []}
-            
-        if r["state"] == "ERROR":
-            report_data[env]["critical"].append(f"<b>{r['app']}</b> on {r['host']}: {r['errors'][0]}")
-        elif r["state"] in ["STOPPED", "UNREACHABLE", "MISSING_LOG"]:
-            report_data[env]["info"].append(f"<b>{r['app']}</b> on {r['host']} is {r['state']}")
-            
-    return report_data
+        host = r["host"]
+        app = r["app"]
+        state = r["state"]
+        
+        # Unique ID for memory tracking
+        key = f"{env}|{host}|{app}"
+        prev_state = PREV_STATE.get(key, "HEALTHY")
+        
+        # Update Memory
+        NEW_STATE[key] = state
 
-def notify(report_data):
-    if not report_data:
-        logging.info("No environments were scanned. No emails to send.")
+        # Check for Recovery
+        if state in ["HEALTHY", "EXPECTED_STOPPED"]:
+            report["healthy_envs"].add(env)
+            if prev_state not in ["HEALTHY", "EXPECTED_STOPPED", "UNKNOWN"]:
+                report["recoveries"].append(r)
+        else:
+            report["problem_envs"].add(env)
+            report["issues"].append(r)
+
+    # Clean up healthy envs if they actually have a problem
+    report["healthy_envs"] = report["healthy_envs"] - report["problem_envs"]
+    return report
+
+def send_unified_email(report_data):
+    healthy_envs = report_data["healthy_envs"]
+    problem_envs = report_data["problem_envs"]
+    issues = report_data["issues"]
+    recoveries = report_data["recoveries"]
+
+    if not issues and not recoveries:
+        logging.info("Everything is healthy. No email sent to prevent spam.")
         return
 
-    # Loop through each environment and send a SEPARATE email for each
-    for env, data in report_data.items():
-        critical = data["critical"]
-        info = data["info"]
-        
-        # Build the HTML Email for THIS specific environment
-        html = f"""
-        <html>
-          <body style="font-family: Arial, sans-serif;">
-            <h2>TIBCO EAR Status Report ({env})</h2>
-            <hr>
-        """
-        
-        # If both lists are empty, the environment is completely healthy
-        if not critical and not info:
-            logging.info(f"[{env}] is fully healthy. Sending 'All Clear' email.")
-            html += f"""
-            <div style="background-color: #d4edda; color: #155724; padding: 15px; border-radius: 5px; border: 1px solid #c3e6cb;">
-                <h3 style="margin-top: 0;">✅ All Monitored EARs are HEALTHY</h3>
-                <p style="margin-bottom: 0;">No critical errors, stopped processes, or missing logs were found in the <b>{env}</b> environment.</p>
-            </div>
-            """
-        else:
-            # Otherwise, list the errors and info as usual
-            logging.info(f"[{env}] has issues. Sending alert email.")
-            html += f"""
-            <h3 style="background-color: #f2f2f2; padding: 5px;">[ {env} ENVIRONMENT ISSUES ]</h3>
-            """
-            
-            if critical:
-                html += f"""
-                <h4 style="color: red; margin-bottom: 2px;">Critical Errors Found</h4>
-                <ul style="margin-top: 5px;">{''.join([f"<li>{c}</li>" for c in critical])}</ul>
-                """
-                
-            if info:
-                html += f"""
-                <h4 style="color: gray; margin-bottom: 2px;">Info / Process Stopped / Unreachable</h4>
-                <ul style="margin-top: 5px;">{''.join([f"<li>{i}</li>" for i in info])}</ul>
-                """
-        
-        html += "</body></html>"
+    # Determine Subject
+    if not issues and recoveries:
+        subject = "TIBCO EAR Report [RESOLVED] - Services have recovered"
+    else:
+        env_names = ", ".join(problem_envs)
+        subject = f"TIBCO EAR Alert [ACTION REQUIRED] - Issues in {env_names}"
 
-        # Prepare the email message for THIS environment
-        msg = MIMEMultipart()
-        msg['Subject'] = f"TIBCO EAR Report [{env}] - {'HEALTHY' if not critical and not info else 'ACTION REQUIRED'}"
-        msg['From'] = "jenkins@urbanout.com"
-        msg['To'] = ALERT_EMAIL
-        msg.attach(MIMEText(html, 'html'))
+    # Build Executive Summary
+    exec_summary = ""
+    for env in healthy_envs:
+        exec_summary += f"<div style='margin-bottom: 5px;'>🟢 <b>{env}:</b> Fully Healthy</div>"
+    
+    # Aggregate issues by environment for the summary
+    env_issues = {}
+    for i in issues:
+        env = i["env"]
+        env_issues[env] = env_issues.get(env, 0) + 1
+
+    for env, count in env_issues.items():
+        exec_summary += f"<div style='margin-bottom: 5px; color: red;'>🔴 <b>{env}:</b> {count} Service Issues Detected</div>"
+
+    # --- HTML CSS STYLING ---
+    html = f"""
+    <html>
+    <head>
+    <style>
+        body {{ font-family: 'Segoe UI', Arial, sans-serif; color: #333; }}
+        .header {{ background-color: #004d99; color: white; padding: 15px; border-radius: 5px 5px 0 0; }}
+        .summary-box {{ background-color: #fdfdfd; padding: 15px; border: 1px solid #ccc; border-left: 5px solid #004d99; margin-bottom: 20px; font-size: 16px; }}
+        .content {{ padding: 20px; border: 1px solid #ddd; border-top: none; }}
+        table {{ width: 100%; border-collapse: collapse; margin-top: 10px; margin-bottom: 25px;}}
+        th, td {{ border: 1px solid #ddd; padding: 10px; text-align: left; font-size: 14px; }}
+        th {{ background-color: #f2f2f2; font-weight: bold; }}
+        .critical {{ background-color: #f8d7da; color: #721c24; font-weight: bold; }}
+        .warning {{ background-color: #fff3cd; color: #856404; font-weight: bold; }}
+        .recovered {{ background-color: #d4edda; color: #155724; padding: 10px; margin-bottom: 15px; border: 1px solid #c3e6cb; font-weight: bold; }}
+    </style>
+    </head>
+    <body>
+        <div class="header" style="{'background-color: #cc0000;' if issues else ''}">
+            <h2 style="margin: 0;">TIBCO EAR & Engine Status Report</h2>
+        </div>
+        <div class="content">
+            <div class="summary-box">
+                <h3 style="margin-top: 0; margin-bottom: 10px;">📊 Executive Summary</h3>
+                {exec_summary}
+            </div>
+    """
+
+    if recoveries:
+        html += "<div class='recovered'>✅ RECOVERY NOTIFICATION: The following services have recovered:<br><ul>"
+        for r in recoveries: 
+            html += f"<li><b>{r['app']}</b> on {r['host']} ({r['env']}) is now HEALTHY.</li>"
+        html += "</ul></div>"
+
+    if issues:
+        html += """
+        <h3 style='background-color: #f2f2f2; padding: 5px;'>[ DETECTED ANOMALIES ]</h3>
+        <table>
+            <tr>
+                <th>Environment</th>
+                <th>App Name</th>
+                <th>Host</th>
+                <th>Status</th>
+                <th>Diagnostic / Log Output</th>
+            </tr>
+        """
+        for i in issues:
+            row_class = "critical" if i['state'] in ["ERROR", "UNREACHABLE"] else "warning"
+            error_text = i['errors'][0] if i['errors'] else i['state']
+            # Truncate overly long log lines to keep tables clean
+            if len(error_text) > 150: error_text = error_text[:147] + "..."
+            
+            html += f"""
+            <tr class='{row_class}'>
+                <td><b>{i['env']}</b></td>
+                <td>{i['app']}</td>
+                <td>{i['host']}</td>
+                <td>{i['state']}</td>
+                <td style='font-family: monospace;'>{error_text}</td>
+            </tr>
+            """
+        html += "</table>"
         
-        # Send the email
-        try:
-            with smtplib.SMTP(SMTP_SERVER) as server:
-                server.send_message(msg)
-                logging.info(f"Email report successfully sent for {env} to {ALERT_EMAIL}")
-        except Exception as e:
-            logging.error(f"Failed to send email for {env}: {e}")
+        html += """
+        <div style="background-color: #e9ecef; padding: 15px; border-left: 5px solid #004d99; margin-top: 25px;">
+            <h3 style="margin-top: 0;">🛠️ Recommended Action</h3>
+            <p style="margin:0;">Log into TIBCO Administrator for the affected environment to restart crashed instances or investigate ERROR traces in the application logs.</p>
+        </div>
+        """
+
+    html += "</div></body></html>"
+
+    msg = MIMEMultipart()
+    msg['Subject'] = subject
+    msg['From'] = "jenkins@urbanout.com"
+    msg['To'] = ALERT_EMAIL
+    msg.attach(MIMEText(html, 'html'))
+    
+    try:
+        with smtplib.SMTP(SMTP_SERVER) as server:
+            server.send_message(msg)
+            logging.info("Unified email report successfully sent.")
+    except Exception as e:
+        logging.error(f"Failed to send email: {e}")
 
 if __name__ == "__main__":
-    # Note: Using TARGET_ENV.split(',') allows for the multiple Jenkins checkboxes to work correctly
     logging.info(f"Starting checks for Envs: {TARGET_ENV.split(',')}, EARs: {TARGET_EARS if TARGET_EARS else 'ALL'}")
 
     results = []
     with ThreadPoolExecutor(max_workers=CONCURRENCY_LIMIT) as executor:
         futures = []
-
         for app_name, config in APP_CONFIG.items():
             if TARGET_EARS and app_name not in TARGET_EARS: continue
 
             deployments = config.get("deployments", {})
             for env_name, env_details in deployments.items():
-                
-                # Skip if this environment wasn't checked in Jenkins
-                if TARGET_ENV != "ALL" and env_name not in TARGET_ENV.split(','): 
-                    continue
+                if TARGET_ENV != "ALL" and env_name not in TARGET_ENV.split(','): continue
 
                 log_dir = env_details["log_dir"]
                 machines = env_details["machines"]
-                # NEW: Grab the expected_stopped list from config. Defaults to empty list [] if not found.
                 expected_stopped = env_details.get("expected_stopped", [])
-                
                 log_prefix = config["log_prefix"]
                 filters = config.get("filters", {"alert_on": ["ERROR"], "ignore_patterns": []})
 
                 for host in machines:
-                    # NEW: Pass expected_stopped to the function
                     futures.append(executor.submit(check_latest_log, env_name, host, app_name, log_dir, log_prefix, filters, expected_stopped))
 
         for future in as_completed(futures):
             results.append(future.result())
 
-    report_data = generate_report(results)
-    notify(report_data)
+    # Save the updated memory state for the next run
+    try:
+        with open(STATE_FILE, 'w') as f:
+            json.dump(NEW_STATE, f, indent=4)
+    except Exception as e:
+        logging.error(f"Failed to save state file: {e}")
+
+    report_data = generate_unified_report(results)
+    send_unified_email(report_data)
     logging.info("Checks completed.")
