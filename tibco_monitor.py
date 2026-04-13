@@ -2,6 +2,7 @@
 import os
 import sys
 import time
+import datetime
 import json
 import smtplib
 import logging
@@ -15,7 +16,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(me
 
 # --- 1. LOAD EXTERNAL CONFIGURATION & MEMORY ---
 CONFIG_FILE = os.environ.get("CONFIG_FILE_PATH", "config.json")
-STATE_FILE = "ear_state.json" # Acts as the script's memory
+STATE_FILE = "ear_state.json"
 
 try:
     with open(CONFIG_FILE, 'r') as f:
@@ -55,8 +56,8 @@ def run_ssh_command(host, command, retries=MAX_RETRIES):
             
             stdin, stdout, stderr = client.exec_command(command)
             exit_status = stdout.channel.recv_exit_status()
-            out = stdout.read().decode('utf-8').strip()
-            err = stderr.read().decode('utf-8').strip()
+            out = stdout.channel.recv(4096).decode('utf-8', errors='ignore').strip()
+            err = stderr.channel.recv(4096).decode('utf-8', errors='ignore').strip()
             client.close()
             return {"status": exit_status, "out": out, "err": err, "unreachable": False}
         except Exception as e:
@@ -98,7 +99,7 @@ def check_latest_log(env_name, host, app_name, log_dir, log_prefix, filters, exp
             found_errors.append(line.strip())
 
     state = "ERROR" if found_errors else "HEALTHY"
-    return {"env": env_name, "host": host, "app": app_name, "state": state, "errors": found_errors[:1]} # Keep the primary error to save space
+    return {"env": env_name, "host": host, "app": app_name, "state": state, "errors": found_errors[:1]}
 
 def generate_unified_report(results):
     report = {
@@ -108,19 +109,37 @@ def generate_unified_report(results):
         "issues": []
     }
     
-    # Process results and compare with memory
+    current_time = time.time()
+
     for r in results:
         env = r["env"]
         host = r["host"]
         app = r["app"]
         state = r["state"]
         
-        # Unique ID for memory tracking
+        # Memory tracking
         key = f"{env}|{host}|{app}"
-        prev_state = PREV_STATE.get(key, "HEALTHY")
+        prev_data = PREV_STATE.get(key, {})
+        
+        # Handle migration from old string-based state file to new dict-based one
+        if isinstance(prev_data, str):
+            prev_state = prev_data
+            prev_time = current_time
+        else:
+            prev_state = prev_data.get("state", "HEALTHY")
+            prev_time = prev_data.get("timestamp", current_time)
+        
+        # Calculate how long it has been in this state
+        if state == prev_state:
+            state_time = prev_time
+        else:
+            state_time = current_time
+            
+        hours_in_state = round((current_time - state_time) / 3600.0, 1)
+        r["hours_in_state"] = hours_in_state
         
         # Update Memory
-        NEW_STATE[key] = state
+        NEW_STATE[key] = {"state": state, "timestamp": state_time}
 
         # Check for Recovery
         if state in ["HEALTHY", "EXPECTED_STOPPED"]:
@@ -131,7 +150,6 @@ def generate_unified_report(results):
             report["problem_envs"].add(env)
             report["issues"].append(r)
 
-    # Clean up healthy envs if they actually have a problem
     report["healthy_envs"] = report["healthy_envs"] - report["problem_envs"]
     return report
 
@@ -145,28 +163,53 @@ def send_unified_email(report_data):
         logging.info("Everything is healthy. No email sent to prevent spam.")
         return
 
-    # Determine Subject
+    # Add timestamp to subject to prevent email threading!
+    current_time_str = datetime.datetime.now().strftime("%I:%M %p")
+    
     if not issues and recoveries:
-        subject = "TIBCO EAR Report [RESOLVED] - Services have recovered"
+        subject = f"TIBCO EAR Report [RESOLVED] - Services Recovered ({current_time_str})"
     else:
         env_names = ", ".join(problem_envs)
-        subject = f"TIBCO EAR Alert [ACTION REQUIRED] - Issues in {env_names}"
+        subject = f"TIBCO EAR Alert [ACTION REQUIRED] - {env_names} ({current_time_str})"
 
-    # Build Executive Summary
+    # ==========================================
+    # 1. BUILD PLAIN TEXT FOR SLACK (MARKDOWN)
+    # ==========================================
+    plain_text = f"🚨 *{subject}* 🚨\n\n"
+    
+    if recoveries:
+        plain_text += "✅ *RECOVERIES:*\n"
+        for r in recoveries:
+            plain_text += f"• {r['app']} on {r['host']} ({r['env']}) is now HEALTHY.\n"
+        plain_text += "\n"
+        
+    if issues:
+        plain_text += "🔴 *DETECTED ANOMALIES:*\n"
+        for i in issues:
+            duration = f" (Down for {i['hours_in_state']} hrs)" if i['hours_in_state'] > 0 else ""
+            error_msg = i['errors'][0] if i['errors'] else i['state']
+            if len(error_msg) > 100: error_msg = error_msg[:97] + "..."
+            
+            plain_text += f"• *{i['env']}* | {i['app']} | {i['host']}\n"
+            plain_text += f"  Status: {i['state']}{duration}\n"
+            plain_text += f"  Reason: `{error_msg}`\n\n"
+            
+    plain_text += "🛠️ *Recommended Action:* Log into TIBCO Administrator to restart instances or investigate logs."
+
+    # ==========================================
+    # 2. BUILD HTML FOR OUTLOOK/GMAIL
+    # ==========================================
     exec_summary = ""
     for env in healthy_envs:
         exec_summary += f"<div style='margin-bottom: 5px;'>🟢 <b>{env}:</b> Fully Healthy</div>"
     
-    # Aggregate issues by environment for the summary
     env_issues = {}
     for i in issues:
-        env = i["env"]
-        env_issues[env] = env_issues.get(env, 0) + 1
+        env_issues[i["env"]] = env_issues.get(i["env"], 0) + 1
 
     for env, count in env_issues.items():
         exec_summary += f"<div style='margin-bottom: 5px; color: red;'>🔴 <b>{env}:</b> {count} Service Issues Detected</div>"
 
-    # --- HTML CSS STYLING ---
     html = f"""
     <html>
     <head>
@@ -215,15 +258,17 @@ def send_unified_email(report_data):
         for i in issues:
             row_class = "critical" if i['state'] in ["ERROR", "UNREACHABLE"] else "warning"
             error_text = i['errors'][0] if i['errors'] else i['state']
-            # Truncate overly long log lines to keep tables clean
             if len(error_text) > 150: error_text = error_text[:147] + "..."
+            
+            # Show duration in the HTML table too
+            duration_html = f"<br><small style='color: #666;'>(Down for {i['hours_in_state']} hrs)</small>" if i['hours_in_state'] > 0 else ""
             
             html += f"""
             <tr class='{row_class}'>
                 <td><b>{i['env']}</b></td>
                 <td>{i['app']}</td>
                 <td>{i['host']}</td>
-                <td>{i['state']}</td>
+                <td><b>{i['state']}</b>{duration_html}</td>
                 <td style='font-family: monospace;'>{error_text}</td>
             </tr>
             """
@@ -238,16 +283,22 @@ def send_unified_email(report_data):
 
     html += "</div></body></html>"
 
-    msg = MIMEMultipart()
+    # ==========================================
+    # 3. ATTACH BOTH FORMATS TO EMAIL
+    # ==========================================
+    msg = MIMEMultipart('alternative')
     msg['Subject'] = subject
     msg['From'] = "jenkins@urbanout.com"
     msg['To'] = ALERT_EMAIL
+    
+    # Attach plain text FIRST (Slack reads this), then HTML (Outlook reads this)
+    msg.attach(MIMEText(plain_text, 'plain'))
     msg.attach(MIMEText(html, 'html'))
     
     try:
         with smtplib.SMTP(SMTP_SERVER) as server:
             server.send_message(msg)
-            logging.info("Unified email report successfully sent.")
+            logging.info("Unified email report successfully sent to Outlook & Slack.")
     except Exception as e:
         logging.error(f"Failed to send email: {e}")
 
@@ -276,7 +327,6 @@ if __name__ == "__main__":
         for future in as_completed(futures):
             results.append(future.result())
 
-    # Save the updated memory state for the next run
     try:
         with open(STATE_FILE, 'w') as f:
             json.dump(NEW_STATE, f, indent=4)
